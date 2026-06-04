@@ -4715,6 +4715,54 @@
         }
 
         // Enhanced Test Runs component with drill-down functionality
+        // --- CSV export for the test results table (issue #35) ---
+
+        // Escapes a single CSV field per RFC 4180: wrap in double quotes when the
+        // value contains a quote, comma, or newline, and double any embedded quotes.
+        function escapeCsvField(value) {
+            const str = value === null || value === undefined ? '' : String(value);
+            return /[",\r\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
+        }
+
+        // Builds the CSV text for the test-spec results table. Columns mirror the
+        // on-screen table. Rows reflect exactly what is passed in, i.e. the
+        // currently displayed (and therefore filtered) specs.
+        function buildTestResultsCsv(specs, suiteName) {
+            const headers = ['Test Name', 'Status', 'Duration (ms)', 'Start Time', 'Error Message', 'Test Suite'];
+            const lines = specs.map(spec => {
+                const startRaw = spec.startTime || spec.started_at;
+                const startTime = startRaw ? new Date(startRaw).toLocaleString() : '';
+                return [
+                    spec.name,
+                    spec.status,
+                    spec.duration_ms,
+                    startTime,
+                    spec.error_message,
+                    suiteName
+                ].map(escapeCsvField).join(',');
+            });
+            return [headers.join(','), ...lines].join('\r\n');
+        }
+
+        // Returns a date-stamped filename like "test-results-2026-06-01.csv".
+        function testResultsCsvFilename(date = new Date()) {
+            const pad = n => String(n).padStart(2, '0');
+            return `test-results-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.csv`;
+        }
+
+        // Triggers a client-side download of CSV text as a file.
+        function downloadCsv(filename, csvContent) {
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
         function TestRuns() {
             const [testRuns, setTestRuns] = useState([]);
             const [selectedRun, setSelectedRun] = useState(null);
@@ -4972,6 +5020,13 @@
                 setSelectedSuite(null);
                 setSpecData([]);
                 setView('suites');
+            };
+
+            // Export the currently displayed test specs to a CSV download (issue #35).
+            const handleExportCsv = () => {
+                if (specData.length === 0) return;
+                const csv = buildTestResultsCsv(specData, selectedSuite?.name || '');
+                downloadCsv(testResultsCsvFilename(), csv);
             };
 
             if (loading) {
@@ -5302,6 +5357,18 @@
                             )}
                         </div>
                         
+                        <div style={{display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem'}}>
+                            <button
+                                className="back-button"
+                                onClick={handleExportCsv}
+                                disabled={specData.length === 0}
+                                title={specData.length === 0 ? 'No data to export' : 'Export visible test results to CSV'}
+                                style={specData.length === 0 ? {opacity: 0.5, cursor: 'not-allowed'} : {}}
+                            >
+                                <i className="fas fa-download"></i> Export CSV
+                            </button>
+                        </div>
+
                         <div className="table-container">
                             <table>
                                 <thead>
